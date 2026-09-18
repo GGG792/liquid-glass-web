@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>DeepSeek · Liquid Glass</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" id="hljs-light">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" id="hljs-dark" disabled>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="bg">
+  <div class="cloud c1"></div>
+  <div class="cloud c2"></div>
+  <div class="cloud c3"></div>
+  <div class="cloud c4"></div>
+</div>
+
+<div class="dynamic-island" id="island" onclick="toggleIsland()">
+  <div class="island-compact">
+    <div class="island-seg">
+      <span class="island-dot" id="islandDot"></span>
+      <span class="island-model" id="islandModel">V4 Pro</span>
+    </div>
+    <div class="island-sep"></div>
+    <div class="island-seg island-seg-mid">
+      <span class="island-mid" id="islandMid">待命</span>
+    </div>
+    <div class="island-sep"></div>
+    <div class="island-seg">
+      <span class="island-status" id="islandStatus">就绪</span>
+    </div>
+  </div>
+  <div class="island-detail">
+    <div class="island-divider"></div>
+    <div class="island-grid">
+      <div class="island-cell"><span class="lbl">速度</span><span class="v blue" id="iSpeed">-</span></div>
+      <div class="island-cell"><span class="lbl">首字</span><span class="v orange" id="iTtft">-</span></div>
+      <div class="island-cell"><span class="lbl">输入</span><span class="v" id="iIn">-</span></div>
+      <div class="island-cell"><span class="lbl">输出</span><span class="v green" id="iOut">-</span></div>
+      <div class="island-cell"><span class="lbl">推理</span><span class="v" id="iReason">-</span></div>
+      <div class="island-cell"><span class="lbl">总计</span><span class="v" id="iTotal">-</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="app">
+  <aside class="sidebar lg" id="sidebar">
+    <div class="sb-head">
+      <h2>会话</h2>
+      <button class="lg-btn" onclick="newSession()" style="padding:6px 10px;font-size:12px">+ 新建</button>
+      <button class="lg-btn" onclick="closeSidebar()" style="padding:6px 10px;font-size:12px">✕</button>
+    </div>
+    <div class="sb-list" id="sessionList"></div>
+    <div class="sb-foot">
+      <button class="lg-btn" onclick="toggleDark()" id="darkBtn">🌙 深色</button>
+      <button class="lg-btn" onclick="openSettings()">⚙ 设置</button>
+      <button class="lg-btn" onclick="exportSessions()">导出</button>
+      <button class="lg-btn" onclick="document.getElementById('importFile').click()">导入</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importSessions(event)">
+    </div>
+  </aside>
+  <div class="overlay" id="overlay" onclick="closeSidebar()"></div>
+
+  <main class="main">
+    <div class="warn-bar" id="warnBar">⚠ 检测到 file:// 协议，浏览器可能拦截 API 请求。建议用 Termux 跑 <code>python -m http.server 8080</code> 后访问 http://localhost:8080/index.html</div>
+    <div class="header lg">
+      <button class="lg-btn menu-btn" onclick="openSidebar()" style="padding:6px 10px">☰</button>
+      <h1>DeepSeek</h1>
+      <input id="k" type="password" placeholder="API Key">
+
+      <!-- 自定义模型下拉 -->
+      <div class="model-select" id="modelSelect">
+        <button class="model-btn" id="modelBtn" onclick="toggleModelMenu(event)">
+          <span id="modelLabel">V4 Pro</span>
+          <svg class="model-arrow" viewBox="0 0 12 8" width="10" height="7">
+            <path d="M1 1l5 5 5-5" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="model-menu" id="modelMenu">
+          <div class="model-item active" data-value="deepseek-v4-pro" data-label="V4 Pro">
+            <span class="model-name">V4 Pro</span>
+            <span class="model-desc">旗舰 · 最强推理</span>
+          </div>
+          <div class="model-item" data-value="deepseek-v4-flash" data-label="V4 Flash">
+            <span class="model-name">V4 Flash</span>
+            <span class="model-desc">快速 · 经济实惠</span>
+          </div>
+          <div class="model-item" data-value="deepseek-v4-flash-vision-exp" data-label="V4 Vision">
+            <span class="model-name">V4 Vision</span>
+            <span class="model-desc">支持图片理解</span>
+          </div>
+          <div class="model-item" data-value="deepseek-v3.2" data-label="V3.2">
+            <span class="model-name">V3.2</span>
+            <span class="model-desc">均衡通用</span>
+          </div>
+          <div class="model-item" data-value="deepseek-v3.1" data-label="V3.1">
+            <span class="model-name">V3.1</span>
+            <span class="model-desc">稳定版本</span>
+          </div>
+          <div class="model-item" data-value="deepseek-r1" data-label="R1">
+            <span class="model-name">R1</span>
+            <span class="model-desc">深度推理</span>
+          </div>
+          <div class="model-item" data-value="deepseek-chat" data-label="Chat">
+            <span class="model-name">Chat</span>
+            <span class="model-desc">旧版对话</span>
+          </div>
+          <div class="model-item" data-value="deepseek-reasoner" data-label="Reasoner">
+            <span class="model-name">Reasoner</span>
+            <span class="model-desc">旧版推理</span>
+          </div>
+        </div>
+      </div>
+
+      <button class="lg-btn" onclick="saveSettings()">保存</button>
+    </div>
+
+    <div id="chat"></div>
+    <div class="img-preview" id="imgPreview"></div>
+    <div class="prompts" id="prompts"></div>
+
+    <div class="input-bar lg">
+      <button class="lg-btn attach-btn" onclick="document.getElementById('fileInput').click()">📎</button>
+      <input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="handleFiles(event)">
+      <textarea id="msg" rows="1" placeholder="输入消息...（Shift+Enter 换行）"></textarea>
+      <button class="lg-btn send-btn" id="sendBtn" onclick="send()">发送</button>
+      <button class="lg-btn stop-btn" id="stopBtn" onclick="stopGenerate()">停止</button>
+    </div>
+  </main>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="close" onclick="closeLightbox()">✕</button>
+  <img id="lightboxImg" src="">
+</div>
+
+<div class="modal" id="settingsModal">
+  <div class="modal-box lg">
+    <h3>设置</h3>
+    <label>API 代理地址（留空则直连 DeepSeek）</label>
+    <input id="proxyUrl" placeholder="例如 https://your-worker.workers.dev/chat">
+    <label>全局系统提示词（每次请求自动携带）</label>
+    <textarea id="sysPrompt" placeholder="例如：你是一个专业的中文助手，回答简洁准确。"></textarea>
+    <label>主题</label>
+    <select id="themeMode">
+      <option value="light">浅色</option>
+      <option value="dark">深色</option>
+      <option value="auto">跟随系统</option>
+    </select>
+    <div class="btns">
+      <button class="lg-btn" onclick="closeModal('settingsModal')">取消</button>
+      <button class="lg-btn" onclick="saveModalSettings()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.0/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.8/purify.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
