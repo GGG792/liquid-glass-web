@@ -11,13 +11,22 @@ let state = {
   sessions: [], currentId: null,
   theme: 'light', apiKey: '', model: 'deepseek-v4-pro',
   modelLabel: 'V4 Pro',
-  proxyUrl: '', sysPrompt: ''
+  proxyUrl: '', sysPrompt: '',
+  tokenOpts: {
+    masterOn: false,
+    historyOn: false, historyVal: 10,
+    lenOn: false, lenVal: 2000,
+    imgOn: false,
+    maxOn: false, maxVal: 2048,
+    sysOn: false
+  }
 };
 let pendingImages = [];
 let islandExpanded = false;
 let islandAutoTimer = null;
 let abortController = null;
 let isGenerating = false;
+let lastPreviewHTML = '';
 
 /* ==================== IndexedDB ==================== */
 const IDB_NAME = 'ds_images', IDB_STORE = 'imgs';
@@ -84,6 +93,16 @@ function loadState() {
       if (!s.theme) state.theme = 'light';
       if (!s.model) state.model = 'deepseek-v4-pro';
       if (!s.modelLabel) state.modelLabel = 'V4 Pro';
+      if (!s.tokenOpts) {
+        state.tokenOpts = {
+          masterOn: false,
+          historyOn: false, historyVal: 10,
+          lenOn: false, lenVal: 2000,
+          imgOn: false,
+          maxOn: false, maxVal: 2048,
+          sysOn: false
+        };
+      }
     }
   } catch (e) { console.warn(e); }
   if (!state.sessions.length) createNewSession(false);
@@ -229,6 +248,23 @@ function renderMessage(m, animate = true, idx = -1) {
     note.style.cssText = 'font-size:11px;color:#ffb84d;margin-top:6px';
     note.textContent = '⚠ 已中断';
     div.appendChild(note);
+  }
+
+  // 检测 HTML 并加预览按钮
+  if (m.role === 'assistant' && m.content) {
+    const html = extractHTML(m.content);
+    if (html) {
+      const previewBtn = document.createElement('button');
+      previewBtn.textContent = '🔍 预览网页';
+      previewBtn.style.cssText = 'display:block;margin-top:10px;padding:8px 16px;border-radius:12px;background:linear-gradient(135deg,rgba(110,198,255,.7),rgba(110,198,255,.5));border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);box-shadow:0 4px 16px rgba(110,198,255,.3);transition:all .3s cubic-bezier(.34,1.56,.64,1)';
+      previewBtn.onmouseenter = () => previewBtn.style.transform = 'translateY(-1px)';
+      previewBtn.onmouseleave = () => previewBtn.style.transform = 'translateY(0)';
+      previewBtn.onclick = (e) => {
+        e.stopPropagation();
+        previewHTML(html);
+      };
+      div.appendChild(previewBtn);
+    }
   }
 
   if (m.role === 'assistant' && m.meta) {
@@ -456,6 +492,57 @@ function saveModalSettings() {
   closeModal('settingsModal');
 }
 
+/* ==================== Token 优化 ==================== */
+function openTokenSettings() {
+  const o = state.tokenOpts;
+  $('masterSwitch').checked = o.masterOn;
+  $('optHistoryOn').checked = o.historyOn;
+  $('optHistoryVal').value = o.historyVal;
+  $('optHistoryValLabel').textContent = o.historyVal + ' 条';
+  $('optLenOn').checked = o.lenOn;
+  $('optLenVal').value = o.lenVal;
+  $('optLenValLabel').textContent = o.lenVal + ' 字';
+  $('optImgOn').checked = o.imgOn;
+  $('optMaxOn').checked = o.maxOn;
+  $('optMaxVal').value = o.maxVal;
+  $('optMaxValLabel').textContent = o.maxVal;
+  $('optSysOn').checked = o.sysOn;
+  $('tokenModal').classList.add('show');
+}
+function onMasterSwitch() {
+  const on = $('masterSwitch').checked;
+  $('optHistoryOn').checked = on;
+  $('optLenOn').checked = on;
+  $('optImgOn').checked = on;
+  $('optMaxOn').checked = on;
+  $('optSysOn').checked = on;
+}
+function toggleTokenDetail() {
+  const d = $('tokenDetail'), b = $('tokenExpandBtn');
+  d.classList.toggle('show');
+  b.classList.toggle('active');
+}
+function onTokenOptChange() {
+  $('optHistoryValLabel').textContent = $('optHistoryVal').value + ' 条';
+  $('optLenValLabel').textContent = $('optLenVal').value + ' 字';
+  $('optMaxValLabel').textContent = $('optMaxVal').value;
+}
+function saveTokenSettings() {
+  state.tokenOpts = {
+    masterOn: $('masterSwitch').checked,
+    historyOn: $('optHistoryOn').checked,
+    historyVal: parseInt($('optHistoryVal').value),
+    lenOn: $('optLenOn').checked,
+    lenVal: parseInt($('optLenVal').value),
+    imgOn: $('optImgOn').checked,
+    maxOn: $('optMaxOn').checked,
+    maxVal: parseInt($('optMaxVal').value),
+    sysOn: $('optSysOn').checked
+  };
+  saveState();
+  closeModal('tokenModal');
+}
+
 /* ==================== 灵动岛 ==================== */
 function toggleIsland() {
   islandExpanded = !islandExpanded;
@@ -532,7 +619,9 @@ function compressImageToStandard(file) {
         width = source.naturalWidth || source.width;
         height = source.naturalHeight || source.height;
       }
-      const maxSize = 1024;
+      // 根据 Token 优化设置决定最大尺寸
+      const maxSize = state.tokenOpts.imgOn ? 720 : 1024;
+      const quality = state.tokenOpts.imgOn ? 0.7 : 0.8;
       if (width > maxSize || height > maxSize) {
         const ratio = Math.min(maxSize / width, maxSize / height);
         width = Math.round(width * ratio); height = Math.round(height * ratio);
@@ -544,7 +633,7 @@ function compressImageToStandard(file) {
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(source, 0, 0, width, height);
       if (source.close) source.close();
-      resolve(canvas.toDataURL('image/jpeg', 0.8));
+      resolve(canvas.toDataURL('image/jpeg', quality));
     } catch (err) {
       console.warn('图片标准化失败', err);
       resolve(null);
@@ -681,8 +770,10 @@ async function importSessions(e) {
     state.currentId = data.sessions[0].id;
     if (data.apiKey) state.apiKey = data.apiKey;
     if (data.model) state.model = data.model;
+    if (data.modelLabel) state.modelLabel = data.modelLabel;
     if (data.proxyUrl !== undefined) state.proxyUrl = data.proxyUrl;
     if (data.sysPrompt !== undefined) state.sysPrompt = data.sysPrompt;
+    if (data.tokenOpts) state.tokenOpts = data.tokenOpts;
     saveState();
     $('k').value = state.apiKey;
     initModelMenu();
@@ -697,6 +788,52 @@ function estimateTokens(text) {
   const chinese = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
   const other = text.length - chinese;
   return Math.ceil(chinese * 0.67 + other * 0.25);
+}
+
+/* ==================== HTML 提取与预览 ==================== */
+function extractHTML(text) {
+  if (!text) return null;
+  const fenced = text.match(/```html\s*([\s\S]*?)```/i);
+  if (fenced && fenced[1]) {
+    const code = fenced[1].trim();
+    if (code.includes('<html') || code.includes('<!DOCTYPE') || code.includes('<body')) {
+      return code;
+    }
+  }
+  const doctype = text.match(/<!DOCTYPE[\s\S]*?<\/html>/i);
+  if (doctype) return doctype[0];
+  const htmlTag = text.match(/<html[\s\S]*?<\/html>/i);
+  if (htmlTag) return htmlTag[0];
+  const body = text.match(/<body[\s\S]*?<\/body>/i);
+  if (body && text.includes('<head')) {
+    const head = text.match(/<head[\s\S]*?<\/head>/i);
+    return '<!DOCTYPE html><html>' + (head ? head[0] : '') + body[0] + '</html>';
+  }
+  return null;
+}
+function previewHTML(html) {
+  lastPreviewHTML = html;
+  const frame = document.getElementById('previewFrame');
+  frame.srcdoc = html;
+  document.getElementById('previewModal').classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+function closePreview() {
+  document.getElementById('previewModal').classList.remove('show');
+  document.getElementById('previewFrame').srcdoc = '';
+  document.body.style.overflow = '';
+}
+function refreshPreview() {
+  const frame = document.getElementById('previewFrame');
+  const html = lastPreviewHTML;
+  frame.srcdoc = '';
+  setTimeout(() => { frame.srcdoc = html; }, 50);
+}
+function openPreviewNewTab() {
+  const blob = new Blob([lastPreviewHTML], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
 /* ==================== 发送 ==================== */
@@ -742,12 +879,27 @@ async function send() {
 
   msgEl.value = ''; autoResize();
 
+  // ===== 构建 apiMessages（含 Token 优化）=====
+  const opts = state.tokenOpts;
   const apiMessages = [];
+
   if (state.sysPrompt) apiMessages.push({ role: 'system', content: state.sysPrompt });
-  for (const m of s.messages) {
+
+  let msgs = s.messages.slice();
+  if (opts.historyOn) {
+    msgs = msgs.slice(-opts.historyVal);
+  }
+
+  for (const m of msgs) {
     if (m.role === 'user' && m.images && m.images.length) {
       const arr = [];
-      if (m.content) arr.push({ type: 'text', text: m.content });
+      if (m.content) {
+        let c = m.content;
+        if (opts.lenOn && c.length > opts.lenVal) {
+          c = c.slice(0, opts.lenVal) + '...[已截断]';
+        }
+        arr.push({ type: 'text', text: c });
+      }
       const resolved = await resolveImages(m.images);
       resolved.forEach(item => {
         if (item.dataUrl && (
@@ -764,7 +916,13 @@ async function send() {
       if (arr.length === 1 && arr[0].type === 'text') apiMessages.push({ role: 'user', content: arr[0].text });
       else if (arr.length > 0) apiMessages.push({ role: 'user', content: arr });
       else apiMessages.push({ role: 'user', content: m.content || '' });
-    } else apiMessages.push({ role: m.role, content: m.content });
+    } else {
+      let content = m.content || '';
+      if (opts.lenOn && content.length > opts.lenVal) {
+        content = content.slice(0, opts.lenVal) + '...[已截断]';
+      }
+      apiMessages.push({ role: m.role, content });
+    }
   }
 
   const aiMsg = { role: 'assistant', content: '', reasoning: '', meta: null };
@@ -790,13 +948,18 @@ async function send() {
   const headers = { 'Content-Type': 'application/json' };
   if (!useProxy) headers['Authorization'] = 'Bearer ' + key;
 
+  const reqBody = {
+    model: state.model,
+    messages: apiMessages,
+    stream: true,
+    stream_options: { include_usage: true }
+  };
+  if (opts.maxOn) reqBody.max_tokens = opts.maxVal;
+
   try {
     const res = await fetch(url, {
       method: 'POST', headers,
-      body: JSON.stringify({
-        model: state.model, messages: apiMessages,
-        stream: true, stream_options: { include_usage: true }
-      }),
+      body: JSON.stringify(reqBody),
       signal: abortController.signal
     });
 
@@ -919,6 +1082,19 @@ async function send() {
     regenBtn.onclick = () => regenerate(aiIdx);
     newMeta.appendChild(regenBtn);
     aiEl.appendChild(newMeta);
+
+    // 检测 HTML 并加预览按钮
+    const html = extractHTML(fullText);
+    if (html) {
+      const previewBtn = document.createElement('button');
+      previewBtn.textContent = '🔍 预览网页';
+      previewBtn.style.cssText = 'display:block;margin-top:10px;padding:8px 16px;border-radius:12px;background:linear-gradient(135deg,rgba(110,198,255,.7),rgba(110,198,255,.5));border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);box-shadow:0 4px 16px rgba(110,198,255,.3);transition:all .3s cubic-bezier(.34,1.56,.64,1)';
+      previewBtn.onmouseenter = () => previewBtn.style.transform = 'translateY(-1px)';
+      previewBtn.onmouseleave = () => previewBtn.style.transform = 'translateY(0)';
+      previewBtn.onclick = (e) => { e.stopPropagation(); previewHTML(html); };
+      aiEl.appendChild(previewBtn);
+    }
+
     saveState();
 
   } catch (e) {
@@ -989,7 +1165,23 @@ function init() {
   $('settingsModal').addEventListener('click', e => {
     if (e.target === $('settingsModal')) closeModal('settingsModal');
   });
+  $('tokenModal').addEventListener('click', e => {
+    if (e.target === $('tokenModal')) closeModal('tokenModal');
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      const pm = document.getElementById('previewModal');
+      if (pm && pm.classList.contains('show')) closePreview();
+    }
+  });
   window.addEventListener('beforeunload', () => { try { saveState(); } catch {} });
   window.addEventListener('pagehide', () => { try { saveState(); } catch {} });
+
+  // 注册 Service Worker（PWA）
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(err => {
+      console.warn('Service Worker 注册失败', err);
+    });
+  }
 }
 init();
