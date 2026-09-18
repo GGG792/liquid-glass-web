@@ -57,7 +57,7 @@ async function idbGet(id) {
   return new Promise((res, rej) => {
     const tx = db.transaction(IDB_STORE, 'readonly');
     const req = tx.objectStore(IDB_STORE).get(id);
-    req.onsuccess = () => res(req.result?.dataUrl || null);
+    req.onsuccess = () => res(req.result ? req.result.dataUrl : null);
     req.onerror = () => rej(req.error);
   });
 }
@@ -116,7 +116,6 @@ function sanitize(html) {
     ALLOWED_ATTR: ['href','src','alt','title','class','target','rel']
   });
 }
-
 /* ==================== 会话 ==================== */
 function createNewSession(save = true) {
   const s = { id: uid(), title: '新对话', messages: [], createdAt: Date.now() };
@@ -148,7 +147,7 @@ async function deleteSession(id, e) {
 }
 function currentSession() { return state.sessions.find(s => s.id === state.currentId); }
 
-/* ==================== 渲染会话 ==================== */
+/* ==================== 渲染会话列表 ==================== */
 function renderSessions() {
   sessionListEl.innerHTML = '';
   state.sessions.forEach(s => {
@@ -256,62 +255,8 @@ function renderMessage(m, animate = true, idx = -1) {
     if (html) {
       const previewBtn = document.createElement('button');
       previewBtn.textContent = '🔍 预览网页';
-      previewBtn.style.cssText = 'display:block;margin-top:10px;padding:8px 16px;border-radius:12px;background:linear-gradient(135deg,rgba(110,198,255,.7),rgba(110,198,255,.5));border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);box-shadow:0 4px 16px rgba(110,198,255,.3);transition:all .3s cubic-bezier(.34,1.56,.64,1)';
-      previewBtn.onmouseenter = () => previewBtn.style.transform = 'translateY(-1px)';
-      previewBtn.onmouseleave = () => previewBtn.style.transform = 'translateY(0)';
-      previewBtn.onclick = (e) => {
-        e.stopPropagation();
-        previewHTML(html);
-      };
-      div.appendChild(previewBtn);
-    }
-  }
-
-  if (m.role === 'assistant' && m.meta) {
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    const mt = m.meta;
-    let html = `<span>⏱ ${mt.elapsed}s</span><span>⚡ ${mt.speed} tok/s</span>`;
-    if (mt.gotUsage) {
-      html += `<span>📥 ${mt.input}</span><span>📤 ${mt.output}</span>`;
-      if (mt.reasoning > 0) html += `<span>💭 ${mt.reasoning}</span>`;
-      html += `<span>🔢 ${mt.total}</span>`;
-    } else {
-      html += `<span>📥 ~${mt.input}</span><span>📤 ~${mt.output}</span><span style="color:#ffb84d">⚠ 估算</span>`;
-    }
-    meta.innerHTML = html;
-    const spacer = document.createElement('span'); spacer.className = 'spacer'; meta.appendChild(spacer);
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = '复制';
-    copyBtn.onclick = () => copyMsg(copyBtn, m.content);
-    meta.appendChild(copyBtn);
-    const regenBtn = document.createElement('button');
-    regenBtn.textContent = '重新生成';
-    regenBtn.onclick = () => regenerate(idx);
-    meta.appendChild(regenBtn);
-    div.appendChild(meta);
-  }
-
-  if (m.role === 'user') {
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    const spacer = document.createElement('span'); spacer.className = 'spacer'; meta.appendChild(spacer);
-    const editBtn = document.createElement('button');
-    editBtn.textContent = '编辑';
-    editBtn.onclick = () => startEdit(div, idx, m);
-    meta.appendChild(editBtn);
-    const copyBtn2 = document.createElement('button');
-    copyBtn2.textContent = '复制';
-    copyBtn2.onclick = () => copyMsg(copyBtn2, m.content);
-    meta.appendChild(copyBtn2);
-    div.appendChild(meta);
-  }
-
-  chatEl.appendChild(div);
-  if (animate) scrollBottom();
-  return div;
-}
-
+      previewBtn.style.cssText = 'display:block;marg
+/* ==================== Markdown 渲染 ==================== */
 function renderMarkdown(el, text) {
   if (typeof marked === 'undefined') { el.textContent = text; return; }
   try {
@@ -325,7 +270,7 @@ function renderMarkdown(el, text) {
       btn.textContent = '复制';
       btn.onclick = (e) => {
         e.stopPropagation();
-        const code = pre.querySelector('code')?.innerText || pre.innerText;
+        const code = pre.querySelector('code') ? pre.querySelector('code').innerText : pre.innerText;
         navigator.clipboard.writeText(code).then(() => {
           btn.textContent = '已复制';
           setTimeout(() => btn.textContent = '复制', 1500);
@@ -427,14 +372,18 @@ function toggleDark() {
   state.theme = currentlyDark ? 'light' : 'dark';
   applyTheme(); saveState();
 }
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (state.theme === 'auto') applyTheme();
-});
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq.addEventListener) {
+    mq.addEventListener('change', () => {
+      if (state.theme === 'auto') applyTheme();
+    });
+  }
+}
 
 /* ==================== 侧边栏 ==================== */
 function openSidebar() { $('sidebar').classList.add('open'); $('overlay').classList.add('show'); }
 function closeSidebar() { $('sidebar').classList.remove('open'); $('overlay').classList.remove('show'); }
-
 /* ==================== 自定义模型下拉 ==================== */
 function toggleModelMenu(e) {
   if (e) e.stopPropagation();
@@ -577,8 +526,7 @@ function resetIsland() {
   $('islandMid').textContent = '连接中';
   $('islandStatus').textContent = '0 tok';
 }
-
-/* ==================== 图片 ==================== */
+/* ==================== 图片处理 ==================== */
 async function handleFiles(e) {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
@@ -619,7 +567,6 @@ function compressImageToStandard(file) {
         width = source.naturalWidth || source.width;
         height = source.naturalHeight || source.height;
       }
-      // 根据 Token 优化设置决定最大尺寸
       const maxSize = state.tokenOpts.imgOn ? 720 : 1024;
       const quality = state.tokenOpts.imgOn ? 0.7 : 0.8;
       if (width > maxSize || height > maxSize) {
@@ -710,78 +657,11 @@ function initLightbox() {
       e.preventDefault();
       const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       lightboxScale = Math.max(0.5, Math.min(5, lightboxStartScale * dist / lightboxStartDist));
-      $('lightboxImg').style.transform = `scale(${lightboxScale})`;
+      $('lightboxImg').style.transform = 'scale(' + lightboxScale + ')';
     }
   }, { passive: false });
   lbEl.addEventListener('dblclick', () => {
-    lightboxScale = lightboxScale > 1 ? 1 : 2;
-    $('lightboxImg').style.transform = `scale(${lightboxScale})`;
-  });
-  lbEl.addEventListener('click', e => {
-    if (e.target === lbEl || e.target.classList.contains('close')) closeLightbox();
-  });
-}
-
-/* ==================== 导入导出 ==================== */
-async function exportSessions() {
-  const exportData = JSON.parse(JSON.stringify(state));
-  for (const s of exportData.sessions) {
-    for (const m of s.messages) {
-      if (m.images && m.images.length) {
-        const resolved = await resolveImages(m.images);
-        m.images = resolved.map(r => r.dataUrl);
-      }
-    }
-  }
-  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `deepseek-sessions-${new Date().toISOString().slice(0,10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-async function importSessions(e) {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  e.target.value = '';
-  try {
-    const text = await file.text();
-    const data = JSON.parse(text);
-    if (!data.sessions || !Array.isArray(data.sessions)) return alert('文件格式不对');
-    if (!confirm(`导入 ${data.sessions.length} 个会话？当前会话会被追加。`)) return;
-    for (const s of data.sessions) {
-      for (const m of s.messages) {
-        if (m.images && m.images.length) {
-          const ids = [];
-          for (const img of m.images) {
-            if (typeof img === 'string' && img.startsWith('data:')) {
-              const id = 'img_' + uid();
-              await idbPut(id, img);
-              ids.push(id);
-            } else if (typeof img === 'string') ids.push(img);
-          }
-          m.images = ids;
-        }
-      }
-      s.id = s.id || uid();
-    }
-    state.sessions = [...data.sessions, ...state.sessions];
-    state.currentId = data.sessions[0].id;
-    if (data.apiKey) state.apiKey = data.apiKey;
-    if (data.model) state.model = data.model;
-    if (data.modelLabel) state.modelLabel = data.modelLabel;
-    if (data.proxyUrl !== undefined) state.proxyUrl = data.proxyUrl;
-    if (data.sysPrompt !== undefined) state.sysPrompt = data.sysPrompt;
-    if (data.tokenOpts) state.tokenOpts = data.tokenOpts;
-    saveState();
-    $('k').value = state.apiKey;
-    initModelMenu();
-    updateIslandModel(); renderSessions(); renderMessages();
-    alert('导入成功');
-  } catch (err) { console.warn(err); alert('导入失败：' + err.message); }
-}
-
+    lightboxScale = lightboxScale
 /* ==================== Token 估算 ==================== */
 function estimateTokens(text) {
   if (!text) return 0;
@@ -796,7 +676,7 @@ function extractHTML(text) {
   const fenced = text.match(/```html\s*([\s\S]*?)```/i);
   if (fenced && fenced[1]) {
     const code = fenced[1].trim();
-    if (code.includes('<html') || code.includes('<!DOCTYPE') || code.includes('<body')) {
+    if (code.indexOf('<html') >= 0 || code.indexOf('<!DOCTYPE') >= 0 || code.indexOf('<body') >= 0) {
       return code;
     }
   }
@@ -805,7 +685,7 @@ function extractHTML(text) {
   const htmlTag = text.match(/<html[\s\S]*?<\/html>/i);
   if (htmlTag) return htmlTag[0];
   const body = text.match(/<body[\s\S]*?<\/body>/i);
-  if (body && text.includes('<head')) {
+  if (body && text.indexOf('<head') >= 0) {
     const head = text.match(/<head[\s\S]*?<\/head>/i);
     return '<!DOCTYPE html><html>' + (head ? head[0] : '') + body[0] + '</html>';
   }
@@ -836,7 +716,7 @@ function openPreviewNewTab() {
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-/* ==================== 发送 ==================== */
+/* ==================== 发送主逻辑 ==================== */
 async function send() {
   if (isGenerating) return;
   const key = $('k').value.trim();
@@ -847,6 +727,7 @@ async function send() {
   const s = currentSession();
   if (!s) return;
 
+  // 检查历史损坏图片
   let hasInvalidImage = false;
   for (const m of s.messages) {
     if (m.role === 'user' && m.images) {
@@ -879,7 +760,7 @@ async function send() {
 
   msgEl.value = ''; autoResize();
 
-  // ===== 构建 apiMessages（含 Token 优化）=====
+  // 构建 apiMessages（含 Token 优化）
   const opts = state.tokenOpts;
   const apiMessages = [];
 
@@ -903,10 +784,10 @@ async function send() {
       const resolved = await resolveImages(m.images);
       resolved.forEach(item => {
         if (item.dataUrl && (
-            item.dataUrl.startsWith('data:image/jpeg;base64,') ||
-            item.dataUrl.startsWith('data:image/png;base64,') ||
-            item.dataUrl.startsWith('data:image/webp;base64,') ||
-            item.dataUrl.startsWith('data:image/gif;base64,')
+            item.dataUrl.indexOf('data:image/jpeg;base64,') === 0 ||
+            item.dataUrl.indexOf('data:image/png;base64,') === 0 ||
+            item.dataUrl.indexOf('data:image/webp;base64,') === 0 ||
+            item.dataUrl.indexOf('data:image/gif;base64,') === 0
         )) {
           arr.push({ type: 'image_url', image_url: { url: item.dataUrl } });
         } else {
@@ -955,7 +836,6 @@ async function send() {
     stream_options: { include_usage: true }
   };
   if (opts.maxOn) reqBody.max_tokens = opts.maxVal;
-
   try {
     const res = await fetch(url, {
       method: 'POST', headers,
@@ -965,7 +845,7 @@ async function send() {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      const errMsg = err.error?.message || res.status;
+      const errMsg = (err.error && err.error.message) ? err.error.message : res.status;
       contentEl.textContent = '错误：' + errMsg;
       aiMsg.content = '错误：' + errMsg;
       aiMsg.failed = true;
@@ -991,13 +871,13 @@ async function send() {
 
       for (const line of lines) {
         const t = line.trim();
-        if (!t || !t.startsWith('data: ')) continue;
+        if (!t || t.indexOf('data: ') !== 0) continue;
         const data = t.slice(6);
         if (data === '[DONE]') continue;
 
         try {
           const chunk = JSON.parse(data);
-          const delta = chunk.choices?.[0]?.delta;
+          const delta = chunk.choices && chunk.choices[0] ? chunk.choices[0].delta : null;
           if (delta) {
             if (delta.reasoning_content) {
               isReasoning = true;
@@ -1028,7 +908,7 @@ async function send() {
             inputTokens = chunk.usage.prompt_tokens || 0;
             outputTokens = chunk.usage.completion_tokens || 0;
             totalTokens = chunk.usage.total_tokens || 0;
-            reasoningTokens = chunk.usage.completion_tokens_details?.reasoning_tokens || 0;
+            reasoningTokens = (chunk.usage.completion_tokens_details && chunk.usage.completion_tokens_details.reasoning_tokens) ? chunk.usage.completion_tokens_details.reasoning_tokens : 0;
             gotUsage = true;
             setIsland('iIn', inputTokens); setIsland('iOut', outputTokens);
             setIsland('iReason', reasoningTokens); setIsland('iTotal', totalTokens);
@@ -1063,125 +943,184 @@ async function send() {
     if (metaEl) metaEl.remove();
     const newMeta = document.createElement('div');
     newMeta.className = 'meta';
-    let html = `<span>⏱ ${elapsed}s</span><span>⚡ ${avgSpeed} tok/s</span>`;
+    let html = '<span>⏱ ' + elapsed + 's</span><span>⚡ ' + avgSpeed + ' tok/s</span>';
     if (gotUsage) {
-      html += `<span>📥 ${inputTokens}</span><span>📤 ${outputTokens}</span>`;
-      if (reasoningTokens > 0) html += `<span>💭 ${reasoningTokens}</span>`;
-      html += `<span>🔢 ${totalTokens}</span>`;
+      html += '<span>📥 ' + inputTokens + '</span><span>📤 ' + outputTokens + '</span>';
+      if (reasoningTokens > 0) html += '<span>💭 ' + reasoningTokens + '</span>';
+      html += '<span>🔢 ' + totalTokens + '</span>';
     } else {
-      html += `<span>📥 ~${inputTokens}</span><span>📤 ~${outputTokens}</span><span style="color:#ffb84d">⚠ 估算</span>`;
+      html += '<span>📥 ~' + inputTokens + '</span><span>📤 ~' + outputTokens + '</span><span style="color:#ffb84d">⚠ 估算</span>';
     }
     newMeta.innerHTML = html;
     const spacer = document.createElement('span'); spacer.className = 'spacer'; newMeta.appendChild(spacer);
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = '复制';
-    copyBtn.onclick = () => copyMsg(copyBtn, aiMsg.content);
-    newMeta.appendChild(copyBtn);
-    const regenBtn = document.createElement('button');
-    regenBtn.textContent = '重新生成';
-    regenBtn.onclick = () => regenerate(aiIdx);
-    newMeta.appendChild(regenBtn);
-    aiEl.appendChild(newMeta);
+    const copyBtn = document.createEle
+/* ==================== 液态玻璃 SDF 折射 ==================== */
+/*
+ * 基于圆角矩形 SDF（符号距离场）逐像素计算位移贴图
+ * 参考实现思路：Weiqin-Mo/Liquid-Glass-HTML
+ * 
+ * 原理：
+ * 1. 遍历元素的每个像素，计算到圆角矩形边缘的距离
+ * 2. 边缘过渡带内产生折射位移，方向沿径向
+ * 3. 位移量编码到 Canvas 的 R/G 通道
+ * 4. 通过 SVG feImage 引用这张图，作为 feDisplacementMap 的位移图
+ * 5. 应用到 backdrop-filter，实现"玻璃边缘真实弯曲"
+ */
 
-    // 检测 HTML 并加预览按钮
-    const html = extractHTML(fullText);
-    if (html) {
-      const previewBtn = document.createElement('button');
-      previewBtn.textContent = '🔍 预览网页';
-      previewBtn.style.cssText = 'display:block;margin-top:10px;padding:8px 16px;border-radius:12px;background:linear-gradient(135deg,rgba(110,198,255,.7),rgba(110,198,255,.5));border:none;color:#fff;font-size:13px;font-weight:600;cursor:pointer;backdrop-filter:blur(10px);box-shadow:0 4px 16px rgba(110,198,255,.3);transition:all .3s cubic-bezier(.34,1.56,.64,1)';
-      previewBtn.onmouseenter = () => previewBtn.style.transform = 'translateY(-1px)';
-      previewBtn.onmouseleave = () => previewBtn.style.transform = 'translateY(0)';
-      previewBtn.onclick = (e) => { e.stopPropagation(); previewHTML(html); };
-      aiEl.appendChild(previewBtn);
-    }
+function generateDisplacementMap(width, height, radius, strength) {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.createImageData(width, height);
+  const data = imgData.data;
 
-    saveState();
+  const halfW = width / 2;
+  const halfH = height / 2;
+  const r = Math.max(0, Math.min(radius, halfW, halfH));
+  const edgeWidth = Math.max(8, Math.min(24, Math.min(halfW, halfH) * 0.35));
 
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      aiMsg.interrupted = true;
-      if (fullText) { renderMarkdown(contentEl, fullText); aiMsg.content = fullText; }
-      else if (reasoningText) { contentEl.textContent = '💭 ' + reasoningText; aiMsg.content = reasoningText; }
-      else { contentEl.textContent = '（已停止）'; aiMsg.content = ''; }
-      aiMsg.reasoning = reasoningText;
-      saveState();
-    } else {
-      contentEl.textContent = '请求失败：' + e.message;
-      aiMsg.content = '请求失败：' + e.message;
-      aiMsg.failed = true;
-      saveState();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const px = x - halfW;
+      const py = y - halfH;
+
+      // 圆角矩形 SDF
+      const qx = Math.abs(px) - halfW + r;
+      const qy = Math.abs(py) - halfH + r;
+      const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0));
+      const inside = Math.min(Math.max(qx, qy), 0);
+      const dist = outside + inside - r;
+
+      // 边缘权重：只在边缘过渡带内起作用
+      // dist < -edgeWidth 时权重=0（内部）
+      // dist ≈ 0 时权重=1（边缘）
+      // dist > 0 时权重=1（外部，保持边缘折射）
+      let edgeWeight;
+      if (dist > 0) {
+        edgeWeight = 1;
+      } else if (dist < -edgeWidth) {
+        edgeWeight = 0;
+      } else {
+        const t = (dist + edgeWidth) / edgeWidth; // 0~1
+        // 反向 smoothstep
+        edgeWeight = 1 - (t * t * (3 - 2 * t));
+      }
+
+      // 径向方向（从元素中心指向外部）
+      const len = Math.hypot(px, py) || 1;
+      const nx = px / len;
+      const ny = py / len;
+
+      // 位移量 = 边缘权重 × 方向 × 强度
+      const dx = nx * edgeWeight * strength;
+      const dy = ny * edgeWeight * strength;
+
+      // 编码到 RG 通道（中心值 128）
+      data[i]     = Math.round(128 + dx * 127);
+      data[i + 1] = Math.round(128 + dy * 127);
+      data[i + 2] = 0;
+      data[i + 3] = 255;
     }
   }
 
-  finishGenerate();
-  scrollBottom();
+  ctx.putImageData(imgData, 0, 0);
+  return canvas.toDataURL('image/png');
 }
 
-function stopGenerate() {
-  if (abortController) { abortController.abort(); abortController = null; }
-}
-function finishGenerate() {
-  isGenerating = false;
-  sendBtn.disabled = false;
-  sendBtn.style.display = '';
-  stopBtn.classList.remove('show');
-  setIslandGenerating(false);
-  abortController = null;
+function applyGlassRefract(el, id) {
+  const rect = el.getBoundingClientRect();
+  const w = Math.round(rect.width);
+  const h = Math.round(rect.height);
+  if (w <= 0 || h <= 0 || w > 1500 || h > 1500) return; // 尺寸异常则跳过
+
+  const dataUrl = generateDisplacementMap(w, h, 20, 30);
+
+  const svg = document.getElementById('glass-svg-defs');
+  if (!svg) return;
+
+  // 删除同 ID 的旧滤镜
+  const old = svg.querySelector('#' + id);
+  if (old) old.remove();
+
+  // 创建 filter
+  const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+  filter.setAttribute('id', id);
+  filter.setAttribute('x', '-10%');
+  filter.setAttribute('y', '-10%');
+  filter.setAttribute('width', '120%');
+  filter.setAttribute('height', '120%');
+  filter.setAttribute('filterUnits', 'objectBoundingBox');
+
+  const feImage = document.createElementNS('http://www.w3.org/2000/svg', 'feImage');
+  feImage.setAttribute('href', dataUrl);
+  feImage.setAttribute('xlink:href', dataUrl);
+  feImage.setAttribute('preserveAspectRatio', 'none');
+  feImage.setAttribute('result', 'map');
+
+  const feDisp = document.createElementNS('http://www.w3.org/2000/svg', 'feDisplacementMap');
+  feDisp.setAttribute('in', 'SourceGraphic');
+  feDisp.setAttribute('in2', 'map');
+  feDisp.setAttribute('scale', '20');
+  feDisp.setAttribute('xChannelSelector', 'R');
+  feDisp.setAttribute('yChannelSelector', 'G');
+
+  filter.appendChild(feImage);
+  filter.appendChild(feDisp);
+  svg.appendChild(filter);
+
+  // 应用到元素的 backdrop-filter
+  try {
+    el.style.backdropFilter = 'url(#' + id + ') blur(2px) saturate(180%)';
+    el.style.webkitBackdropFilter = 'url(#' + id + ') blur(2px) saturate(180%)';
+  } catch (e) {
+    console.warn('backdrop-filter 应用失败', e);
+  }
 }
 
-/* ==================== 输入框 ==================== */
-function autoResize() {
-  msgEl.style.height = 'auto';
-  msgEl.style.height = Math.min(msgEl.scrollHeight, 96) + 'px';
+function initGlassRefraction() {
+  // 只对固定的几个容器应用，避免消息气泡太多导致卡顿
+  const targets = [
+    { sel: '#sidebar', id: 'glass-sidebar' },
+    { sel: '.header', id: 'glass-header' },
+    { sel: '.input-bar', id: 'glass-input' }
+  ];
+
+  targets.forEach(t => {
+    const el = document.querySelector(t.sel);
+    if (!el) return;
+    try {
+      applyGlassRefract(el, t.id);
+    } catch (e) {
+      console.warn('折射初始化失败：' + t.sel, e);
+    }
+  });
+
+  // ResizeObserver：尺寸变化时重新生成位移贴图
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(entries => {
+      entries.forEach(entry => {
+        const el = entry.target;
+        const id = el.dataset.glassId;
+        if (!id) return;
+        clearTimeout(el._glassTimer);
+        el._glassTimer = setTimeout(() => {
+          try { applyGlassRefract(el, id); } catch (e) {}
+        }, 250);
+      });
+    });
+
+    targets.forEach(t => {
+      const el = document.querySelector(t.sel);
+      if (el) {
+        el.dataset.glassId = t.id;
+        ro.observe(el);
+      }
+    });
+  }
 }
 
 /* ==================== 初始化 ==================== */
 function init() {
-  if (location.protocol === 'file:') $('warnBar').classList.add('show');
-  loadState();
-  $('k').value = state.apiKey;
-  applyTheme();
-  renderPrompts();
-  renderSessions();
-  renderMessages();
-  renderImagePreview();
-  updateIslandModel();
-  initModelMenu();
-  initLightbox();
-
-  msgEl.addEventListener('input', autoResize);
-  msgEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-  });
-
-  $('k').addEventListener('change', () => { state.apiKey = $('k').value.trim(); saveState(); });
-
-  document.addEventListener('click', e => {
-    if (islandExpanded && !island.contains(e.target)) {
-      islandExpanded = false;
-      island.classList.remove('expanded');
-    }
-  });
-  $('settingsModal').addEventListener('click', e => {
-    if (e.target === $('settingsModal')) closeModal('settingsModal');
-  });
-  $('tokenModal').addEventListener('click', e => {
-    if (e.target === $('tokenModal')) closeModal('tokenModal');
-  });
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') {
-      const pm = document.getElementById('previewModal');
-      if (pm && pm.classList.contains('show')) closePreview();
-    }
-  });
-  window.addEventListener('beforeunload', () => { try { saveState(); } catch {} });
-  window.addEventListener('pagehide', () => { try { saveState(); } catch {} });
-
-  // 注册 Service Worker（PWA）
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(err => {
-      console.warn('Service Worker 注册失败', err);
-    });
-  }
-}
-init();
+  if (location.

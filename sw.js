@@ -1,5 +1,5 @@
 // Service Worker - 简单缓存，让应用可以离线打开
-const CACHE_NAME = 'ds-chat-v1';
+const CACHE_NAME = 'ds-chat-v2';
 const ASSETS = [
   './',
   './index.html',
